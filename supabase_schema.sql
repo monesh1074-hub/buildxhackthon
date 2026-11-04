@@ -256,3 +256,89 @@ SELECT id, 'EMAIL', 'MEDIUM', 1, 'Email Addresses' FROM new_scan2
 UNION ALL
 SELECT id, 'PHONE', 'MEDIUM', 1, 'Phone Numbers' FROM new_scan2;
 
+
+
+-- ==============================================================================
+-- ⏳ Data Leakage Time Machine Extension Tables & Indexes
+-- ==============================================================================
+
+-- 4. Lineage Services Registry
+CREATE TABLE IF NOT EXISTS public.lineage_services (
+    id TEXT PRIMARY KEY,
+    service_name TEXT UNIQUE NOT NULL,
+    service_type TEXT NOT NULL,
+    trust_level TEXT NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 5. Lineage Events Table (Data journey across microservice hops)
+CREATE TABLE IF NOT EXISTS public.lineage_events (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    event_id TEXT UNIQUE NOT NULL,
+    trace_id TEXT NOT NULL,
+    parent_event_id TEXT,
+    incident_id TEXT,
+    timestamp TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    source_service TEXT NOT NULL,
+    destination_service TEXT NOT NULL,
+    api_route TEXT DEFAULT '/api',
+    direction TEXT DEFAULT 'REQUEST',
+    data_category TEXT NOT NULL,
+    field_identifier TEXT DEFAULT 'unspecified',
+    fingerprint TEXT NOT NULL,
+    action TEXT NOT NULL,
+    policy_id TEXT,
+    exposure_status TEXT DEFAULT 'NORMAL',
+    metadata JSONB DEFAULT '{}'::jsonb
+);
+
+-- 6. Leakage Incidents Table (Investigation records for policy failures / unauthorized leaks)
+CREATE TABLE IF NOT EXISTS public.leakage_incidents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    incident_id TEXT UNIQUE NOT NULL,
+    trace_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    severity TEXT DEFAULT 'HIGH',
+    status TEXT DEFAULT 'OPEN',
+    first_exposure_event_id TEXT,
+    detected_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    affected_services_count INTEGER DEFAULT 1,
+    affected_events_count INTEGER DEFAULT 1,
+    summary_json JSONB DEFAULT '{}'::jsonb,
+    is_demo INTEGER DEFAULT 0
+);
+
+-- Indexes for Time Machine Performance
+CREATE INDEX IF NOT EXISTS idx_lineage_trace_id ON public.lineage_events(trace_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_incident_id ON public.lineage_events(incident_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_event_id ON public.lineage_events(event_id);
+CREATE INDEX IF NOT EXISTS idx_lineage_timestamp ON public.lineage_events(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_lineage_fingerprint ON public.lineage_events(fingerprint);
+CREATE INDEX IF NOT EXISTS idx_incidents_trace_id ON public.leakage_incidents(trace_id);
+CREATE INDEX IF NOT EXISTS idx_incidents_status ON public.leakage_incidents(status);
+
+-- Enable RLS for new tables
+ALTER TABLE public.lineage_services ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.lineage_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.leakage_incidents ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Allow public read lineage_services" ON public.lineage_services FOR SELECT USING (true);
+CREATE POLICY "Allow service role full lineage_services" ON public.lineage_services FOR ALL USING (true);
+
+CREATE POLICY "Allow public read lineage_events" ON public.lineage_events FOR SELECT USING (true);
+CREATE POLICY "Allow service role full lineage_events" ON public.lineage_events FOR ALL USING (true);
+
+CREATE POLICY "Allow public read leakage_incidents" ON public.leakage_incidents FOR SELECT USING (true);
+CREATE POLICY "Allow service role full leakage_incidents" ON public.leakage_incidents FOR ALL USING (true);
+
+-- Seed Default Instrumented Services
+INSERT INTO public.lineage_services (id, service_name, service_type, trust_level)
+VALUES
+    ('svc-client', 'Customer Web / Mobile Client', 'CLIENT', 'UNTRUSTED'),
+    ('svc-gateway', 'Banking API Gateway', 'API_GATEWAY', 'TRUSTED'),
+    ('svc-cis', 'Customer Information Service (CIS)', 'INTERNAL_SERVICE', 'TRUSTED'),
+    ('svc-ledger', 'Core Accounts & Ledger Service', 'INTERNAL_SERVICE', 'RESTRICTED'),
+    ('svc-notifications', 'Third-party Notification Gateway', 'THIRD_PARTY', 'UNTRUSTED'),
+    ('svc-analytics', 'Third-party Analytics Sinks', 'THIRD_PARTY', 'UNTRUSTED')
+ON CONFLICT (id) DO NOTHING;

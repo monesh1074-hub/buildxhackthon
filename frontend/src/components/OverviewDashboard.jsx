@@ -159,11 +159,18 @@ export default function OverviewDashboard({ stats, setActiveTab, onOpenProofModa
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
             <button
+              onClick={() => setActiveTab('timemachine')}
+              className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/20 font-medium text-xs flex items-center justify-center gap-2 transition backdrop-blur-md font-sans"
+            >
+              <Clock className="w-4 h-4 text-purple-300" />
+              <span>Leakage Time Machine</span>
+            </button>
+            <button
               onClick={onOpenProofModal}
               className="px-5 py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white border border-white/20 font-medium text-xs flex items-center justify-center gap-2 transition backdrop-blur-md font-sans"
             >
               <Lock className="w-4 h-4 text-purple-300" />
-              <span>Verify Zero-Storage</span>
+              <span>Zero-Storage</span>
             </button>
           </div>
         </div>

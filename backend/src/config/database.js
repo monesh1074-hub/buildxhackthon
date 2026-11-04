@@ -84,10 +84,52 @@ const seedRules = [
   }
 ];
 
+const seedServices = [
+  {
+    id: 'svc-client',
+    service_name: 'Customer Web / Mobile Client',
+    service_type: 'CLIENT',
+    trust_level: 'UNTRUSTED'
+  },
+  {
+    id: 'svc-gateway',
+    service_name: 'Banking API Gateway',
+    service_type: 'API_GATEWAY',
+    trust_level: 'TRUSTED'
+  },
+  {
+    id: 'svc-cis',
+    service_name: 'Customer Information Service (CIS)',
+    service_type: 'INTERNAL_SERVICE',
+    trust_level: 'TRUSTED'
+  },
+  {
+    id: 'svc-ledger',
+    service_name: 'Core Accounts & Ledger Service',
+    service_type: 'INTERNAL_SERVICE',
+    trust_level: 'RESTRICTED'
+  },
+  {
+    id: 'svc-notifications',
+    service_name: 'Third-party Notification Gateway',
+    service_type: 'THIRD_PARTY',
+    trust_level: 'UNTRUSTED'
+  },
+  {
+    id: 'svc-analytics',
+    service_name: 'Third-party Analytics Sinks',
+    service_type: 'THIRD_PARTY',
+    trust_level: 'UNTRUSTED'
+  }
+];
+
 function createMemoryFallbackDb() {
   const memoryScans = [];
   const memoryDetections = [];
   const memoryRules = JSON.parse(JSON.stringify(seedRules));
+  const memoryServices = JSON.parse(JSON.stringify(seedServices));
+  const memoryLineageEvents = [];
+  const memoryIncidents = [];
 
   return {
     exec: () => {},
@@ -114,6 +156,59 @@ function createMemoryFallbackDb() {
           } else if (lower.includes('insert into scan_detections')) {
             const [scan_id, category, severity, count, rule_name] = args;
             memoryDetections.push({ id: memoryDetections.length + 1, scan_id, category, severity, count, rule_name });
+          } else if (lower.includes('insert into lineage_events')) {
+            const [id, event_id, trace_id, parent_event_id, incident_id, timestamp, source_service, destination_service, api_route, direction, data_category, field_identifier, fingerprint, action, policy_id, exposure_status, metadata] = args;
+            memoryLineageEvents.push({
+              id,
+              event_id,
+              trace_id,
+              parent_event_id,
+              incident_id,
+              timestamp: timestamp || new Date().toISOString(),
+              source_service,
+              destination_service,
+              api_route,
+              direction,
+              data_category,
+              field_identifier,
+              fingerprint,
+              action,
+              policy_id,
+              exposure_status,
+              metadata
+            });
+          } else if (lower.includes('insert into leakage_incidents')) {
+            const [id, incident_id, trace_id, title, severity, status, first_exposure_event_id, affected_services_count, affected_events_count, summary_json, is_demo] = args;
+            memoryIncidents.unshift({
+              id,
+              incident_id,
+              trace_id,
+              title,
+              severity,
+              status,
+              first_exposure_event_id,
+              detected_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              affected_services_count: affected_services_count || 1,
+              affected_events_count: affected_events_count || 1,
+              summary_json,
+              is_demo: is_demo || 0
+            });
+          } else if (lower.includes('update leakage_incidents set status =')) {
+            const [status, id] = args;
+            const inc = memoryIncidents.find(x => x.id === id || x.incident_id === id);
+            if (inc) {
+              inc.status = status;
+              inc.updated_at = new Date().toISOString();
+            }
+          } else if (lower.includes('delete from lineage_events where metadata like')) {
+            const kept = memoryLineageEvents.filter(e => !e.metadata || !e.metadata.includes('"is_demo":true') && !e.metadata.includes('"is_demo": 1'));
+            memoryLineageEvents.length = 0;
+            memoryLineageEvents.push(...kept);
+          } else if (lower.includes('delete from leakage_incidents where is_demo = 1')) {
+            const kept = memoryIncidents.filter(i => i.is_demo !== 1);
+            memoryIncidents.length = 0;
+            memoryIncidents.push(...kept);
           } else if (lower.includes('update detection_rules')) {
             const [status, id] = args;
             const r = memoryRules.find(x => x.id === id);
@@ -148,8 +243,20 @@ function createMemoryFallbackDb() {
           if (lower.includes('select count(*) as count from scan_detections')) {
             return { count: memoryDetections.length };
           }
+          if (lower.includes('select count(*) as count from lineage_services')) {
+            return { count: memoryServices.length };
+          }
+          if (lower.includes('select count(*) as count from leakage_incidents')) {
+            return { count: memoryIncidents.length };
+          }
           if (lower.includes('select * from scans where id =')) {
             return memoryScans.find(s => s.id === args[0]) || null;
+          }
+          if (lower.includes('select * from leakage_incidents where id =') || lower.includes('incident_id =')) {
+            return memoryIncidents.find(i => i.id === args[0] || i.incident_id === args[0]) || null;
+          }
+          if (lower.includes('select * from lineage_events where event_id =') || lower.includes('id =')) {
+            return memoryLineageEvents.find(e => e.event_id === args[0] || e.id === args[0]) || null;
           }
           if (lower.includes('select * from detection_rules where id =')) {
             return memoryRules.find(r => r.id === args[0]) || null;
@@ -174,6 +281,21 @@ function createMemoryFallbackDb() {
           }
           if (lower.includes('from scans')) {
             return memoryScans.slice(0, 50);
+          }
+          if (lower.includes('from lineage_services')) {
+            return memoryServices;
+          }
+          if (lower.includes('from lineage_events where trace_id =')) {
+            return memoryLineageEvents.filter(e => e.trace_id === args[0]).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          }
+          if (lower.includes('from lineage_events where incident_id =')) {
+            return memoryLineageEvents.filter(e => e.incident_id === args[0]).sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+          }
+          if (lower.includes('from lineage_events')) {
+            return memoryLineageEvents.slice(-100);
+          }
+          if (lower.includes('from leakage_incidents')) {
+            return memoryIncidents;
           }
           return [];
         }
@@ -220,11 +342,63 @@ function initDatabase(sqliteInstance) {
       description TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS lineage_services (
+      id TEXT PRIMARY KEY,
+      service_name TEXT UNIQUE NOT NULL,
+      service_type TEXT NOT NULL,
+      trust_level TEXT NOT NULL,
+      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS lineage_events (
+      id TEXT PRIMARY KEY,
+      event_id TEXT UNIQUE NOT NULL,
+      trace_id TEXT NOT NULL,
+      parent_event_id TEXT,
+      incident_id TEXT,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+      source_service TEXT NOT NULL,
+      destination_service TEXT NOT NULL,
+      api_route TEXT DEFAULT '/api',
+      direction TEXT DEFAULT 'REQUEST',
+      data_category TEXT NOT NULL,
+      field_identifier TEXT DEFAULT 'unspecified',
+      fingerprint TEXT NOT NULL,
+      action TEXT NOT NULL,
+      policy_id TEXT,
+      exposure_status TEXT DEFAULT 'NORMAL',
+      metadata TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS leakage_incidents (
+      id TEXT PRIMARY KEY,
+      incident_id TEXT UNIQUE NOT NULL,
+      trace_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      severity TEXT DEFAULT 'HIGH',
+      status TEXT DEFAULT 'OPEN',
+      first_exposure_event_id TEXT,
+      detected_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+      affected_services_count INTEGER DEFAULT 1,
+      affected_events_count INTEGER DEFAULT 1,
+      summary_json TEXT,
+      is_demo INTEGER DEFAULT 0
+    );
+
     CREATE INDEX IF NOT EXISTS idx_scans_timestamp ON scans(timestamp DESC);
     CREATE INDEX IF NOT EXISTS idx_detections_scan_id ON scan_detections(scan_id);
     CREATE INDEX IF NOT EXISTS idx_detections_category ON scan_detections(category);
+    CREATE INDEX IF NOT EXISTS idx_lineage_trace_id ON lineage_events(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_lineage_incident_id ON lineage_events(incident_id);
+    CREATE INDEX IF NOT EXISTS idx_lineage_event_id ON lineage_events(event_id);
+    CREATE INDEX IF NOT EXISTS idx_lineage_timestamp ON lineage_events(timestamp DESC);
+    CREATE INDEX IF NOT EXISTS idx_lineage_fingerprint ON lineage_events(fingerprint);
+    CREATE INDEX IF NOT EXISTS idx_incidents_trace_id ON leakage_incidents(trace_id);
+    CREATE INDEX IF NOT EXISTS idx_incidents_status ON leakage_incidents(status);
   `);
 
+  // Seed default detection rules
   const existingRulesCount = sqliteInstance.prepare('SELECT COUNT(*) as count FROM detection_rules').get();
   if (existingRulesCount.count === 0) {
     const insertRule = sqliteInstance.prepare(`
@@ -237,6 +411,19 @@ function initDatabase(sqliteInstance) {
     });
 
     insertMany(seedRules);
+  }
+
+  // Seed default instrumented microservices
+  const existingServicesCount = sqliteInstance.prepare('SELECT COUNT(*) as count FROM lineage_services').get();
+  if (existingServicesCount.count === 0) {
+    const insertSvc = sqliteInstance.prepare(`
+      INSERT INTO lineage_services (id, service_name, service_type, trust_level)
+      VALUES (@id, @service_name, @service_type, @trust_level)
+    `);
+    const insertManyServices = sqliteInstance.transaction((services) => {
+      for (const s of services) insertSvc.run(s);
+    });
+    insertManyServices(seedServices);
   }
 }
 

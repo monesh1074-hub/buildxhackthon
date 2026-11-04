@@ -9,6 +9,7 @@ import HistoryTable from './components/HistoryTable';
 import RulesManager from './components/RulesManager';
 import ApiSimulator from './components/ApiSimulator';
 import SettingsView from './components/SettingsView';
+import DataTimeMachine from './components/DataTimeMachine';
 import ZeroStorageModal from './components/ZeroStorageModal';
 import { api } from './services/api';
 import { CheckCircle2, ShieldCheck } from 'lucide-react';
@@ -122,6 +123,10 @@ export default function App() {
 
             {activeTab === 'history' && (
               <HistoryTable />
+            )}
+
+            {activeTab === 'timemachine' && (
+              <DataTimeMachine />
             )}
 
             {activeTab === 'rules' && (

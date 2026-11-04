@@ -26,6 +26,8 @@ const statsRoutes = require('./routes/stats');
 const rulesRoutes = require('./routes/rules');
 const samplesRoutes = require('./routes/samples');
 const databaseRoutes = require('./routes/database');
+const lineageRoutes = require('./routes/lineage');
+const incidentsRoutes = require('./routes/incidents');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -65,6 +67,8 @@ app.use('/api/stats', statsRoutes);
 app.use('/api/rules', rulesRoutes);
 app.use('/api/samples', samplesRoutes);
 app.use('/api/database', databaseRoutes);
+app.use('/api/lineage', lineageRoutes);
+app.use('/api/incidents', incidentsRoutes);
 
 // Serve built frontend assets if dist folder exists
 const frontendDistPath = path.join(__dirname, '..', '..', 'frontend', 'dist');

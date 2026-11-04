@@ -76,5 +76,24 @@ export const api = {
     method: 'POST',
     body: JSON.stringify(typeof params === 'string' ? { connectionString: params } : params)
   }),
-  fetchSchemaSql: () => request('/database/schema-sql')
+  fetchSchemaSql: () => request('/database/schema-sql'),
+
+  // ⏳ Data Leakage Time Machine & Lineage
+  fetchLineageOverview: () => request('/lineage/overview'),
+  fetchLineageServices: () => request('/lineage/services'),
+  fetchLineageJourney: (traceId) => request(`/lineage/${traceId}`),
+  fetchIncidents: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/incidents?${query}`);
+  },
+  fetchIncidentDetails: (id) => request(`/incidents/${id}`),
+  fetchIncidentTimeline: (id) => request(`/incidents/${id}/timeline`),
+  fetchIncidentImpact: (id) => request(`/incidents/${id}/impact`),
+  updateIncidentStatus: (id, status) => request(`/incidents/${id}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status })
+  }),
+  runDemoScenarioA: () => request('/lineage/demo/scenario-a', { method: 'POST' }),
+  runDemoScenarioB: () => request('/lineage/demo/scenario-b', { method: 'POST' }),
+  resetDemoLineage: () => request('/lineage/demo/reset', { method: 'POST' })
 };

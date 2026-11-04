@@ -70,9 +70,15 @@ async function autoMigratePg() {
         WHERE table_schema = 'public' AND table_name = 'scans'
       );
     `);
-    const exists = checkTable.rows[0]?.exists;
-    if (!exists) {
-      console.log('[PrivacyShield Database] Running initial Supabase PostgreSQL schema migration...');
+    const checkLineage = await pgPool.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' AND table_name = 'lineage_events'
+      );
+    `);
+    const needsMigration = !checkTable.rows[0]?.exists || !checkLineage.rows[0]?.exists;
+    if (needsMigration) {
+      console.log('[PrivacyShield Database] Running Supabase PostgreSQL schema migration for tables & lineage...');
       const sqlPath = path.join(__dirname, '..', '..', '..', 'supabase_schema.sql');
       if (fs.existsSync(sqlPath)) {
         const ddl = fs.readFileSync(sqlPath, 'utf8');
@@ -803,6 +809,384 @@ async function verifyZeroStorage() {
   };
 }
 
+// ==========================================
+// ⏳ TIME MACHINE & LINEAGE DATA OPERATIONS
+// ==========================================
+
+async function insertLineageEvent(evt) {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      await pgPool.query(`
+        INSERT INTO public.lineage_events (
+          id, event_id, trace_id, parent_event_id, incident_id, timestamp,
+          source_service, destination_service, api_route, direction,
+          data_category, field_identifier, fingerprint, action,
+          policy_id, exposure_status, metadata
+        ) VALUES (
+          gen_random_uuid(), $1, $2, $3, $4, $5,
+          $6, $7, $8, $9,
+          $10, $11, $12, $13,
+          $14, $15, $16
+        )
+      `, [
+        evt.event_id, evt.trace_id, evt.parent_event_id, evt.incident_id, evt.timestamp || new Date().toISOString(),
+        evt.source_service, evt.destination_service, evt.api_route || '/api', evt.direction || 'REQUEST',
+        evt.data_category, evt.field_identifier || 'unspecified', evt.fingerprint, evt.action,
+        evt.policy_id, evt.exposure_status || 'NORMAL', typeof evt.metadata === 'object' ? JSON.stringify(evt.metadata) : evt.metadata
+      ]);
+      return evt;
+    } catch (e) {
+      console.warn('PostgreSQL insertLineageEvent fallback:', e.message);
+    }
+  }
+
+  // SQLite fallback
+  try {
+    const stmt = sqliteDb.prepare(`
+      INSERT INTO lineage_events (
+        id, event_id, trace_id, parent_event_id, incident_id, timestamp,
+        source_service, destination_service, api_route, direction,
+        data_category, field_identifier, fingerprint, action,
+        policy_id, exposure_status, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      evt.id || evt.event_id, evt.event_id, evt.trace_id, evt.parent_event_id, evt.incident_id, evt.timestamp || new Date().toISOString(),
+      evt.source_service, evt.destination_service, evt.api_route || '/api', evt.direction || 'REQUEST',
+      evt.data_category, evt.field_identifier || 'unspecified', evt.fingerprint, evt.action,
+      evt.policy_id, evt.exposure_status || 'NORMAL', typeof evt.metadata === 'object' ? JSON.stringify(evt.metadata) : evt.metadata
+    );
+  } catch (err) {
+    console.warn('SQLite insertLineageEvent error:', err.message);
+  }
+  return evt;
+}
+
+async function getLineageEventsByTraceId(traceId) {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      const res = await pgPool.query(
+        'SELECT * FROM public.lineage_events WHERE trace_id = $1 ORDER BY timestamp ASC',
+        [traceId]
+      );
+      return res.rows;
+    } catch (e) {
+      console.warn('PostgreSQL getLineageEventsByTraceId fallback:', e.message);
+    }
+  }
+
+  try {
+    const stmt = sqliteDb.prepare('SELECT * FROM lineage_events WHERE trace_id = ? ORDER BY timestamp ASC');
+    return stmt.all(traceId);
+  } catch (err) {
+    console.warn('SQLite getLineageEventsByTraceId error:', err.message);
+    return [];
+  }
+}
+
+async function getLineageEventsByIncidentId(incidentId) {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      const res = await pgPool.query(
+        'SELECT * FROM public.lineage_events WHERE incident_id = $1 ORDER BY timestamp ASC',
+        [incidentId]
+      );
+      return res.rows;
+    } catch (e) {
+      console.warn('PostgreSQL getLineageEventsByIncidentId fallback:', e.message);
+    }
+  }
+
+  try {
+    const stmt = sqliteDb.prepare('SELECT * FROM lineage_events WHERE incident_id = ? ORDER BY timestamp ASC');
+    return stmt.all(incidentId);
+  } catch (err) {
+    console.warn('SQLite getLineageEventsByIncidentId error:', err.message);
+    return [];
+  }
+}
+
+async function getIncidents({ limit = 50, offset = 0, status = '', severity = '', search = '' } = {}) {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      let query = 'SELECT * FROM public.leakage_incidents WHERE 1=1';
+      const params = [];
+      let idx = 1;
+
+      if (status && status !== 'ALL') {
+        query += ` AND status = $${idx}`;
+        params.push(status);
+        idx++;
+      }
+      if (severity && severity !== 'ALL') {
+        query += ` AND severity = $${idx}`;
+        params.push(severity);
+        idx++;
+      }
+      if (search) {
+        query += ` AND (title ILIKE $${idx} OR trace_id ILIKE $${idx} OR incident_id ILIKE $${idx})`;
+        params.push(`%${search}%`);
+        idx++;
+      }
+
+      query += ` ORDER BY detected_at DESC LIMIT $${idx} OFFSET $${idx + 1}`;
+      params.push(limit, offset);
+
+      const res = await pgPool.query(query, params);
+      const totalRes = await pgPool.query('SELECT count(*) as count FROM public.leakage_incidents');
+
+      return {
+        incidents: res.rows,
+        total: parseInt(totalRes.rows[0]?.count || 0, 10),
+        limit,
+        offset
+      };
+    } catch (e) {
+      console.warn('PostgreSQL getIncidents fallback:', e.message);
+    }
+  }
+
+  try {
+    let query = 'SELECT * FROM leakage_incidents WHERE 1=1';
+    const params = [];
+    if (status && status !== 'ALL') {
+      query += ' AND status = ?';
+      params.push(status);
+    }
+    if (severity && severity !== 'ALL') {
+      query += ' AND severity = ?';
+      params.push(severity);
+    }
+    if (search) {
+      query += ' AND (title LIKE ? OR trace_id LIKE ? OR incident_id LIKE ?)';
+      params.push(`%${search}%`, `%${search}%`, `%${search}%`);
+    }
+
+    query += ' ORDER BY detected_at DESC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const incidents = sqliteDb.prepare(query).all(...params);
+    const countStmt = sqliteDb.prepare('SELECT count(*) as count FROM leakage_incidents');
+    const total = countStmt.get()?.count || incidents.length;
+
+    return {
+      incidents,
+      total,
+      limit,
+      offset
+    };
+  } catch (err) {
+    console.warn('SQLite getIncidents error:', err.message);
+    return { incidents: [], total: 0, limit, offset };
+  }
+}
+
+async function getIncidentById(id) {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      const res = await pgPool.query(
+        'SELECT * FROM public.leakage_incidents WHERE id::text = $1 OR incident_id = $1 LIMIT 1',
+        [id]
+      );
+      return res.rows[0] || null;
+    } catch (e) {
+      console.warn('PostgreSQL getIncidentById fallback:', e.message);
+    }
+  }
+
+  try {
+    const stmt = sqliteDb.prepare('SELECT * FROM leakage_incidents WHERE id = ? OR incident_id = ? LIMIT 1');
+    return stmt.get(id, id) || null;
+  } catch (err) {
+    console.warn('SQLite getIncidentById error:', err.message);
+    return null;
+  }
+}
+
+async function createIncident(incident) {
+  const incidentId = incident.incident_id || `inc-${Date.now().toString(36)}`;
+  const id = incident.id || uuidv4();
+  const summaryJson = typeof incident.summary_json === 'object' ? JSON.stringify(incident.summary_json) : (incident.summary_json || '{}');
+
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      const res = await pgPool.query(`
+        INSERT INTO public.leakage_incidents (
+          id, incident_id, trace_id, title, severity, status,
+          first_exposure_event_id, detected_at, updated_at,
+          affected_services_count, affected_events_count, summary_json, is_demo
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6,
+          $7, NOW(), NOW(),
+          $8, $9, $10, $11
+        ) RETURNING *
+      `, [
+        id, incidentId, incident.trace_id, incident.title, incident.severity || 'HIGH', incident.status || 'OPEN',
+        incident.first_exposure_event_id || null, incident.affected_services_count || 1, incident.affected_events_count || 1,
+        summaryJson, incident.is_demo ? 1 : 0
+      ]);
+      return res.rows[0];
+    } catch (e) {
+      console.warn('PostgreSQL createIncident fallback:', e.message);
+    }
+  }
+
+  try {
+    const stmt = sqliteDb.prepare(`
+      INSERT INTO leakage_incidents (
+        id, incident_id, trace_id, title, severity, status,
+        first_exposure_event_id, detected_at, updated_at,
+        affected_services_count, affected_events_count, summary_json, is_demo
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'), ?, ?, ?, ?)
+    `);
+    stmt.run(
+      id, incidentId, incident.trace_id, incident.title, incident.severity || 'HIGH', incident.status || 'OPEN',
+      incident.first_exposure_event_id || null, incident.affected_services_count || 1, incident.affected_events_count || 1,
+      summaryJson, incident.is_demo ? 1 : 0
+    );
+    return {
+      id,
+      incident_id: incidentId,
+      ...incident
+    };
+  } catch (err) {
+    console.warn('SQLite createIncident error:', err.message);
+    return incident;
+  }
+}
+
+async function updateIncidentStatus(id, status) {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      const res = await pgPool.query(`
+        UPDATE public.leakage_incidents
+        SET status = $1, updated_at = NOW()
+        WHERE id::text = $2 OR incident_id = $2
+        RETURNING *
+      `, [status, id]);
+      return res.rows[0] || null;
+    } catch (e) {
+      console.warn('PostgreSQL updateIncidentStatus fallback:', e.message);
+    }
+  }
+
+  try {
+    const stmt = sqliteDb.prepare(`
+      UPDATE leakage_incidents
+      SET status = ?, updated_at = datetime('now')
+      WHERE id = ? OR incident_id = ?
+    `);
+    stmt.run(status, id, id);
+    return getIncidentById(id);
+  } catch (err) {
+    console.warn('SQLite updateIncidentStatus error:', err.message);
+    return null;
+  }
+}
+
+async function getLineageServices() {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      const res = await pgPool.query('SELECT * FROM public.lineage_services ORDER BY created_at ASC');
+      if (res.rows && res.rows.length > 0) return res.rows;
+    } catch (e) {
+      console.warn('PostgreSQL getLineageServices fallback:', e.message);
+    }
+  }
+
+  try {
+    const stmt = sqliteDb.prepare('SELECT * FROM lineage_services ORDER BY created_at ASC');
+    return stmt.all();
+  } catch (err) {
+    console.warn('SQLite getLineageServices error:', err.message);
+    return [];
+  }
+}
+
+async function getLineageOverviewStats() {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      const statsRes = await pgPool.query(`
+        SELECT
+          (SELECT count(DISTINCT trace_id) FROM public.lineage_events) as total_tracked_journeys,
+          (SELECT count(*) FROM public.leakage_incidents WHERE severity IN ('CRITICAL', 'HIGH')) as confirmed_exposures,
+          (SELECT count(*) FROM public.lineage_events WHERE action = 'BLOCKED') as blocked_transfers,
+          (SELECT count(*) FROM public.lineage_events WHERE action IN ('MASKED', 'TOKENIZED')) as masked_transfers,
+          (SELECT count(*) FROM public.lineage_services) as services_count,
+          (SELECT count(*) FROM public.leakage_incidents WHERE status IN ('OPEN', 'INVESTIGATING')) as active_investigations;
+      `);
+      const row = statsRes.rows[0] || {};
+      const recentInc = await pgPool.query('SELECT * FROM public.leakage_incidents ORDER BY detected_at DESC LIMIT 5');
+      return {
+        totalTrackedJourneys: parseInt(row.total_tracked_journeys || 0, 10),
+        confirmedExposures: parseInt(row.confirmed_exposures || 0, 10),
+        blockedTransfers: parseInt(row.blocked_transfers || 0, 10),
+        maskedTransfers: parseInt(row.masked_transfers || 0, 10),
+        servicesCount: parseInt(row.services_count || 0, 10),
+        activeInvestigations: parseInt(row.active_investigations || 0, 10),
+        recentIncidents: recentInc.rows
+      };
+    } catch (e) {
+      console.warn('PostgreSQL getLineageOverviewStats fallback:', e.message);
+    }
+  }
+
+  try {
+    const distinctTraces = sqliteDb.prepare('SELECT count(DISTINCT trace_id) as count FROM lineage_events').get()?.count || 0;
+    const confirmedExposures = sqliteDb.prepare("SELECT count(*) as count FROM leakage_incidents WHERE severity IN ('CRITICAL', 'HIGH')").get()?.count || 0;
+    const blockedTransfers = sqliteDb.prepare("SELECT count(*) as count FROM lineage_events WHERE action = 'BLOCKED'").get()?.count || 0;
+    const maskedTransfers = sqliteDb.prepare("SELECT count(*) as count FROM lineage_events WHERE action IN ('MASKED', 'TOKENIZED')").get()?.count || 0;
+    const servicesCount = sqliteDb.prepare('SELECT count(*) as count FROM lineage_services').get()?.count || 6;
+    const activeInvestigations = sqliteDb.prepare("SELECT count(*) as count FROM leakage_incidents WHERE status IN ('OPEN', 'INVESTIGATING')").get()?.count || 0;
+    const recentIncidents = sqliteDb.prepare('SELECT * FROM leakage_incidents ORDER BY detected_at DESC LIMIT 5').all();
+
+    return {
+      totalTrackedJourneys: distinctTraces,
+      confirmedExposures,
+      blockedTransfers,
+      maskedTransfers,
+      servicesCount,
+      activeInvestigations,
+      recentIncidents
+    };
+  } catch (err) {
+    console.warn('SQLite getLineageOverviewStats error:', err.message);
+    return {
+      totalTrackedJourneys: 0,
+      confirmedExposures: 0,
+      blockedTransfers: 0,
+      maskedTransfers: 0,
+      servicesCount: 6,
+      activeInvestigations: 0,
+      recentIncidents: []
+    };
+  }
+}
+
+async function resetDemoData() {
+  if (currentDbType === 'POSTGRES_POOL' && pgPool) {
+    try {
+      await pgPool.query(`
+        DELETE FROM public.lineage_events 
+        WHERE metadata->>'is_demo' = 'true' OR metadata->>'is_demo' = '1'
+      `);
+      await pgPool.query('DELETE FROM public.leakage_incidents WHERE is_demo = 1');
+      return { success: true, message: 'Demonstration records reset successfully' };
+    } catch (e) {
+      console.warn('PostgreSQL resetDemoData fallback:', e.message);
+    }
+  }
+
+  try {
+    sqliteDb.prepare("DELETE FROM lineage_events WHERE metadata LIKE '%\"is_demo\":true%' OR metadata LIKE '%\"is_demo\": 1%'").run();
+    sqliteDb.prepare('DELETE FROM leakage_incidents WHERE is_demo = 1').run();
+    return { success: true, message: 'Demonstration records reset successfully' };
+  } catch (err) {
+    console.warn('SQLite resetDemoData error:', err.message);
+    return { success: false, message: err.message };
+  }
+}
+
 const dbAdapter = {
   getDatabaseStatus,
   testConnection,
@@ -818,7 +1202,18 @@ const dbAdapter = {
   deleteScan,
   clearAllHistory,
   getDashboardStats,
-  verifyZeroStorage
+  verifyZeroStorage,
+  // Time Machine & Lineage
+  insertLineageEvent,
+  getLineageEventsByTraceId,
+  getLineageEventsByIncidentId,
+  getIncidents,
+  getIncidentById,
+  createIncident,
+  updateIncidentStatus,
+  getLineageServices,
+  getLineageOverviewStats,
+  resetDemoData
 };
 
 // Export for CommonJS, ES Module default, and individual named exports
@@ -837,3 +1232,13 @@ module.exports.deleteRule = deleteRule;
 module.exports.verifyZeroStorage = verifyZeroStorage;
 module.exports.testConnection = testConnection;
 module.exports.setConnectionConfig = setConnectionConfig;
+module.exports.insertLineageEvent = insertLineageEvent;
+module.exports.getLineageEventsByTraceId = getLineageEventsByTraceId;
+module.exports.getLineageEventsByIncidentId = getLineageEventsByIncidentId;
+module.exports.getIncidents = getIncidents;
+module.exports.getIncidentById = getIncidentById;
+module.exports.createIncident = createIncident;
+module.exports.updateIncidentStatus = updateIncidentStatus;
+module.exports.getLineageServices = getLineageServices;
+module.exports.getLineageOverviewStats = getLineageOverviewStats;
+module.exports.resetDemoData = resetDemoData;

@@ -3,6 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const { detectSensitiveData } = require('../services/detector');
 const { applyMasking } = require('../services/masker');
+const { recordEvent } = require('../services/lineageTracker');
 
 // Resilient dbAdapter import supporting CommonJS, ES Module default, and bundler transpilation
 const rawDbAdapter = require('../config/dbAdapter');
@@ -104,6 +105,9 @@ router.post('/', async (req, res) => {
     const diff = process.hrtime(startTime);
     const processingTimeMs = Math.round((diff[0] * 1000 + diff[1] / 1e6) * 100) / 100;
 
+    const traceId = req.headers['x-trace-id'] || req.body.traceId || `trc-${Date.now().toString(36)}`;
+    res.setHeader('x-trace-id', traceId);
+
     // 4. Persist only sanitized output to database (Zero-storage principle)
     let auditRecord = null;
     if (persistAudit) {
@@ -119,6 +123,28 @@ router.post('/', async (req, res) => {
         processingTimeMs,
         previewTitle: previewTitle || (isJson ? 'JSON Payload Scan' : 'Text Payload Scan')
       });
+    }
+
+    // 5. Automatic Lineage Tracking for Time Machine
+    if (detectionResult.totalDetections > 0) {
+      try {
+        for (const det of detectionResult.detections) {
+          await recordEvent({
+            traceId,
+            sourceService: source === 'api-gateway' ? 'Banking API Gateway' : 'Customer Web / Mobile Client',
+            destinationService: 'Banking API Gateway',
+            apiRoute: '/api/scan',
+            direction: 'REQUEST',
+            dataCategory: det.category,
+            fieldIdentifier: det.ruleName || det.category,
+            rawValue: det.matchedValue,
+            action: maskingMode === 'none' ? 'DETECTED' : (maskingMode === 'tokenization' ? 'TOKENIZED' : 'MASKED'),
+            metadata: { inputType: isJson ? 'json' : 'text', riskLevel: detectionResult.riskLevel }
+          });
+        }
+      } catch (lineageErr) {
+        console.warn('[Lineage Automatic Tracking Warning]:', lineageErr.message);
+      }
     }
 
     // Attempt to parse sanitized output back to object if originally JSON
@@ -138,6 +164,7 @@ router.post('/', async (req, res) => {
     return res.status(200).json({
       success: true,
       scanId: auditRecord ? auditRecord.id : null,
+      traceId,
       timestamp: new Date().toISOString(),
       maskingMode,
       inputType: isJson ? 'json' : 'text',
@@ -171,6 +198,8 @@ router.post('/', async (req, res) => {
 router.post('/simulate-api-gateway', async (req, res) => {
   const startTime = process.hrtime();
   const rawPayload = req.body;
+  const traceId = req.headers['x-trace-id'] || req.body.traceId || `trc-gw-${Date.now().toString(36)}`;
+  res.setHeader('x-trace-id', traceId);
 
   const rawString = typeof rawPayload === 'object' ? JSON.stringify(rawPayload, null, 2) : String(rawPayload);
   const detectionResult = detectSensitiveData(rawString);
@@ -193,8 +222,46 @@ router.post('/simulate-api-gateway', async (req, res) => {
     previewTitle: 'Gateway Interceptor Payload'
   });
 
+  // Automatic Lineage Journey for Gateway Interceptor
+  if (detectionResult.totalDetections > 0) {
+    try {
+      for (const det of detectionResult.detections) {
+        const evt1 = await recordEvent({
+          traceId,
+          sourceService: 'Customer Web / Mobile Client',
+          destinationService: 'Banking API Gateway',
+          apiRoute: '/api/scan/simulate-api-gateway',
+          direction: 'REQUEST',
+          dataCategory: det.category,
+          fieldIdentifier: det.ruleName || det.category,
+          rawValue: det.matchedValue,
+          action: 'DETECTED',
+          metadata: { gatewayIntercepted: true }
+        });
+
+        await recordEvent({
+          traceId,
+          parentEventId: evt1.event_id,
+          sourceService: 'Banking API Gateway',
+          destinationService: 'Customer Information Service (CIS)',
+          apiRoute: '/internal/cis/process',
+          direction: 'REQUEST',
+          dataCategory: det.category,
+          fieldIdentifier: det.ruleName || det.category,
+          rawValue: det.matchedValue,
+          action: 'MASKED',
+          policyId: 'pol-third-party-zero-raw',
+          metadata: { sanitizedForwarding: true }
+        });
+      }
+    } catch (lineageErr) {
+      console.warn('[Lineage Gateway Tracking Warning]:', lineageErr.message);
+    }
+  }
+
   res.status(200).json({
     gatewayStatus: 'INTERCEPTED_AND_SANITIZED',
+    traceId,
     piiEntitiesBlocked: detectionResult.totalDetections,
     riskLevel: detectionResult.riskLevel,
     latencyMs: processingTimeMs,

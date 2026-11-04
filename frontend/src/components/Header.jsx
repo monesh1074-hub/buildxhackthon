@@ -44,6 +44,12 @@ export default function Header({
           breadcrumb: 'Audit / History Logs',
           desc: 'Verifiable history of sanitized scans (raw sensitive records are strictly never stored).'
         };
+      case 'timemachine':
+        return {
+          title: 'Data Leakage Time Machine',
+          breadcrumb: 'Forensics / Journey Timeline & Exposures',
+          desc: 'Trace how sensitive data moves through microservices and pinpoint the earliest point of unauthorized exposure.'
+        };
       case 'rules':
         return {
           title: 'Detection Policies',

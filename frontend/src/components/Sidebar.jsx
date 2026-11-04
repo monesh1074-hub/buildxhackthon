@@ -10,7 +10,8 @@ import {
   Lock,
   X,
   Radio,
-  FileCode2
+  FileCode2,
+  Clock
 } from 'lucide-react';
 
 export default function Sidebar({
@@ -49,6 +50,14 @@ export default function Sidebar({
       icon: History,
       count: stats?.totalScans || 0,
       description: 'Sanitized audit logs'
+    },
+    {
+      id: 'timemachine',
+      label: 'Leakage Time Machine',
+      icon: Clock,
+      badge: 'Forensics',
+      badgeColor: 'bg-purple-50 text-purple-700 border-purple-200',
+      description: 'Trace data journey & exposures'
     },
     {
       id: 'rules',
