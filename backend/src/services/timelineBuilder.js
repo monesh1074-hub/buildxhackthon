@@ -168,3 +168,4 @@ function safeParseJson(str) {
 module.exports = {
   buildChronologicalTimeline
 };
+

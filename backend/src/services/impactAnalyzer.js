@@ -84,3 +84,4 @@ function analyzeIncidentImpact(incident, events = [], servicesMap = {}) {
 module.exports = {
   analyzeIncidentImpact
 };
+
