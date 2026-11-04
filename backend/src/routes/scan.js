@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const { detectSensitiveData } = require('../services/detector');
 const { applyMasking } = require('../services/masker');
 
@@ -33,9 +34,9 @@ async function safeRecordScan(params) {
   }
 
   // Graceful ephemeral fallback record
-  const { v4: uuidv4 } = require('uuid');
+  const fallbackId = crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex');
   return {
-    id: uuidv4(),
+    id: fallbackId,
     timestamp: new Date().toISOString(),
     source: params.source || 'web-ui',
     maskingMode: params.maskingMode || 'partial',

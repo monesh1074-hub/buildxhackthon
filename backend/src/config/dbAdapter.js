@@ -3,7 +3,8 @@ const { Pool } = require('pg');
 const fs = require('fs');
 const path = require('path');
 const sqliteDb = require('./database');
-const { v4: uuidv4 } = require('uuid');
+const crypto = require('crypto');
+const uuidv4 = () => (crypto.randomUUID ? crypto.randomUUID() : crypto.randomBytes(16).toString('hex'));
 
 // Runtime database configuration
 let currentDbType = 'SQLITE'; // 'POSTGRES_POOL' | 'SUPABASE_REST' | 'SQLITE'
