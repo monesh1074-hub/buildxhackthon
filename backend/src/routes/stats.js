@@ -1,6 +1,13 @@
 const express = require('express');
 const router = express.Router();
-const dbAdapter = require('../config/dbAdapter');
+const rawDbAdapter = require('../config/dbAdapter');
+const dbAdapter = (rawDbAdapter && typeof rawDbAdapter.getDashboardStats === 'function')
+  ? rawDbAdapter
+  : (rawDbAdapter && rawDbAdapter.default && typeof rawDbAdapter.default.getDashboardStats === 'function')
+    ? rawDbAdapter.default
+    : (rawDbAdapter && rawDbAdapter.dbAdapter)
+      ? rawDbAdapter.dbAdapter
+      : rawDbAdapter;
 
 /**
  * GET /api/stats

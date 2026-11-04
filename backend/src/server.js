@@ -8,7 +8,14 @@ dotenv.config();
 
 // Initialize database & adapter
 require('./config/database');
-const dbAdapter = require('./config/dbAdapter');
+const rawDbAdapter = require('./config/dbAdapter');
+const dbAdapter = (rawDbAdapter && typeof rawDbAdapter.getDatabaseStatus === 'function')
+  ? rawDbAdapter
+  : (rawDbAdapter && rawDbAdapter.default && typeof rawDbAdapter.default.getDatabaseStatus === 'function')
+    ? rawDbAdapter.default
+    : (rawDbAdapter && rawDbAdapter.dbAdapter)
+      ? rawDbAdapter.dbAdapter
+      : rawDbAdapter;
 
 const privacyLogger = require('./middleware/privacyLogger');
 const errorHandler = require('./middleware/errorHandler');

@@ -2,7 +2,14 @@ const express = require('express');
 const router = express.Router();
 const fs = require('fs');
 const path = require('path');
-const dbAdapter = require('../config/dbAdapter');
+const rawDbAdapter = require('../config/dbAdapter');
+const dbAdapter = (rawDbAdapter && typeof rawDbAdapter.getDatabaseStatus === 'function')
+  ? rawDbAdapter
+  : (rawDbAdapter && rawDbAdapter.default && typeof rawDbAdapter.default.getDatabaseStatus === 'function')
+    ? rawDbAdapter.default
+    : (rawDbAdapter && rawDbAdapter.dbAdapter)
+      ? rawDbAdapter.dbAdapter
+      : rawDbAdapter;
 
 /**
  * GET /api/database/status

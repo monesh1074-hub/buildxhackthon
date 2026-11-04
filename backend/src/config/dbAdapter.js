@@ -802,7 +802,7 @@ async function verifyZeroStorage() {
   };
 }
 
-module.exports = {
+const dbAdapter = {
   getDatabaseStatus,
   testConnection,
   setConnectionConfig,
@@ -819,3 +819,20 @@ module.exports = {
   getDashboardStats,
   verifyZeroStorage
 };
+
+// Export for CommonJS, ES Module default, and individual named exports
+module.exports = dbAdapter;
+module.exports.default = dbAdapter;
+module.exports.dbAdapter = dbAdapter;
+module.exports.recordScan = recordScan;
+module.exports.getDatabaseStatus = getDatabaseStatus;
+module.exports.getScanHistory = getScanHistory;
+module.exports.getDashboardStats = getDashboardStats;
+module.exports.getAllRules = getAllRules;
+module.exports.getActiveRules = getActiveRules;
+module.exports.toggleRule = toggleRule;
+module.exports.createRule = createRule;
+module.exports.deleteRule = deleteRule;
+module.exports.verifyZeroStorage = verifyZeroStorage;
+module.exports.testConnection = testConnection;
+module.exports.setConnectionConfig = setConnectionConfig;
