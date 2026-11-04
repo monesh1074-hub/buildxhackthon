@@ -1,0 +1,24 @@
+{
+  "name": "privacyshield",
+  "version": "1.0.0",
+  "description": "PrivacyShield - Continuous API Data Loss Prevention & Zero-Knowledge Masking Engine",
+  "main": "backend/src/server.js",
+  "scripts": {
+    "start": "node backend/src/server.js",
+    "backend": "node backend/src/server.js",
+    "frontend": "npm --prefix frontend run dev",
+    "build": "npm --prefix frontend run build",
+    "test": "node -e \"console.log('Testing PrivacyShield health...'); require('./backend/src/server');\""
+  },
+  "keywords": [
+    "cybersecurity",
+    "dlp",
+    "privacy",
+    "pii-masking",
+    "zero-storage",
+    "api-security"
+  ],
+  "author": "PrivacyShield Team",
+  "license": "MIT"
+}
+
