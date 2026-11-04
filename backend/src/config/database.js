@@ -2,10 +2,15 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 
-// Ensure data directory exists
-const dataDir = path.join(__dirname, '..', '..', 'data');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// Ensure data directory exists (support writable /tmp when running in Vercel serverless environments)
+const isVercel = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+let dataDir = isVercel ? '/tmp' : path.join(__dirname, '..', '..', 'data');
+try {
+  if (!fs.existsSync(dataDir)) {
+    fs.mkdirSync(dataDir, { recursive: true });
+  }
+} catch (e) {
+  dataDir = '/tmp';
 }
 
 const dbPath = path.join(dataDir, 'privacyshield.db');
