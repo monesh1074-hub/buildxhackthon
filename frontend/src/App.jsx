@@ -16,21 +16,28 @@ import { CheckCircle2, ShieldCheck } from 'lucide-react';
 export default function App() {
   const [activeTab, setActiveTab] = useState('overview');
   const [stats, setStats] = useState(null);
+  const [dbStatus, setDbStatus] = useState(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isProofModalOpen, setIsProofModalOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notification, setNotification] = useState(null);
 
-  // Fetch real-time metrics from SQLite backend
+  // Fetch real-time metrics and database mode
   const loadStats = async () => {
     setIsRefreshing(true);
     try {
-      const res = await api.fetchStats();
-      if (res.success && res.data) {
-        setStats(res.data);
+      const [statsRes, dbRes] = await Promise.allSettled([
+        api.fetchStats(),
+        api.getDatabaseStatus()
+      ]);
+      if (statsRes.status === 'fulfilled' && statsRes.value?.success) {
+        setStats(statsRes.value.data);
+      }
+      if (dbRes.status === 'fulfilled' && dbRes.value?.success) {
+        setDbStatus(dbRes.value.data);
       }
     } catch (err) {
-      console.error('Failed to load stats:', err);
+      console.error('Failed to load stats/dbStatus:', err);
     } finally {
       setIsRefreshing(false);
     }
@@ -73,6 +80,7 @@ export default function App() {
           isRefreshing={isRefreshing}
           onOpenProofModal={() => setIsProofModalOpen(true)}
           setMobileOpen={setMobileOpen}
+          dbStatus={dbStatus}
         />
 
         {/* Global Floating Toast Notification */}
@@ -129,6 +137,8 @@ export default function App() {
                 stats={stats}
                 onOpenProofModal={() => setIsProofModalOpen(true)}
                 onRefresh={loadStats}
+                dbStatus={dbStatus}
+                onUpdateDbStatus={loadStats}
               />
             )}
           </div>

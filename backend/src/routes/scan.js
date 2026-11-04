@@ -2,13 +2,13 @@ const express = require('express');
 const router = express.Router();
 const { detectSensitiveData } = require('../services/detector');
 const { applyMasking } = require('../services/masker');
-const { recordScan } = require('../services/auditLogger');
+const dbAdapter = require('../config/dbAdapter');
 
 /**
  * POST /api/scan
  * Primary endpoint to scan and sanitize incoming payloads or customer texts.
  */
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const startTime = process.hrtime();
 
   try {
@@ -40,7 +40,6 @@ router.post('/', (req, res) => {
       isJson = true;
     } else {
       textToScan = String(content);
-      // Check if string is formatted JSON
       try {
         const parsed = JSON.parse(textToScan);
         if (typeof parsed === 'object' && parsed !== null) {
@@ -64,7 +63,7 @@ router.post('/', (req, res) => {
     // 4. Persist only sanitized output to database (Zero-storage principle)
     let auditRecord = null;
     if (persistAudit) {
-      auditRecord = recordScan({
+      auditRecord = await dbAdapter.recordScan({
         source,
         inputType: isJson ? 'json' : 'text',
         maskingMode,
@@ -101,9 +100,9 @@ router.post('/', (req, res) => {
       riskScore: detectionResult.riskScore,
       riskLevel: detectionResult.riskLevel,
       processingTimeMs,
-      // Provide highlights for visual diff in UI (contains masked replacements and positions)
       highlights: maskingResult.replacements,
-      zeroLeakageVerified: true
+      zeroLeakageVerified: true,
+      database: auditRecord?.database || dbAdapter.getDatabaseStatus().type
     });
 
   } catch (err) {
@@ -120,11 +119,8 @@ router.post('/', (req, res) => {
 
 /**
  * POST /api/scan/simulate-api-gateway
- * Demonstrates how an API gateway or reverse proxy uses PrivacyShield
- * to intercept incoming production payloads, strip sensitive customer PII,
- * and forward sanitized data to internal microservices and logging clusters.
  */
-router.post('/simulate-api-gateway', (req, res) => {
+router.post('/simulate-api-gateway', async (req, res) => {
   const startTime = process.hrtime();
   const rawPayload = req.body;
 
@@ -136,7 +132,7 @@ router.post('/simulate-api-gateway', (req, res) => {
   const processingTimeMs = Math.round((diff[0] * 1000 + diff[1] / 1e6) * 100) / 100;
 
   // Record sanitized audit
-  recordScan({
+  await dbAdapter.recordScan({
     source: 'api-gateway-simulator',
     inputType: 'json',
     maskingMode: 'partial',
@@ -160,4 +156,3 @@ router.post('/simulate-api-gateway', (req, res) => {
 });
 
 module.exports = router;
-

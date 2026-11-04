@@ -6,8 +6,9 @@ const dotenv = require('dotenv');
 
 dotenv.config();
 
-// Initialize database
+// Initialize database & adapter
 require('./config/database');
+const dbAdapter = require('./config/dbAdapter');
 
 const privacyLogger = require('./middleware/privacyLogger');
 const errorHandler = require('./middleware/errorHandler');
@@ -17,6 +18,7 @@ const historyRoutes = require('./routes/history');
 const statsRoutes = require('./routes/stats');
 const rulesRoutes = require('./routes/rules');
 const samplesRoutes = require('./routes/samples');
+const databaseRoutes = require('./routes/database');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -36,12 +38,15 @@ app.use(privacyLogger);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
+  const dbStatus = dbAdapter.getDatabaseStatus();
   res.status(200).json({
     status: 'ONLINE',
     service: 'PrivacyShield Zero-Leakage Engine',
     version: '1.0.0-hackathon',
     timestamp: new Date().toISOString(),
-    database: 'SQLite (WAL Mode Active)',
+    database: dbStatus.type === 'SUPABASE' ? 'Supabase Online PostgreSQL' : 'SQLite (WAL Mode Active)',
+    databaseType: dbStatus.type,
+    isSupabaseOnline: dbStatus.isOnline,
     zeroStorageGuaranteed: true
   });
 });
@@ -52,6 +57,7 @@ app.use('/api/history', historyRoutes);
 app.use('/api/stats', statsRoutes);
 app.use('/api/rules', rulesRoutes);
 app.use('/api/samples', samplesRoutes);
+app.use('/api/database', databaseRoutes);
 
 // Serve built frontend assets if dist folder exists
 const frontendDistPath = path.join(__dirname, '..', '..', 'frontend', 'dist');
@@ -83,10 +89,11 @@ app.use(errorHandler);
 
 // Start server
 app.listen(PORT, () => {
+  const dbStatus = dbAdapter.getDatabaseStatus();
   console.log(`=======================================================`);
   console.log(`🛡️  PrivacyShield Backend Active on http://localhost:${PORT}`);
   console.log(`🔒 Zero-Leakage Logging Active: Plaintext PII is masked`);
-  console.log(`📁 SQLite Database: WAL Mode Enabled`);
+  console.log(`📁 Database Mode: ${dbStatus.type === 'SUPABASE' ? 'Supabase Online Cloud' : 'SQLite (WAL Mode)'}`);
   if (fs.existsSync(frontendDistPath)) {
     console.log(`🌐 React UI Dashboard served at http://localhost:${PORT}`);
   }

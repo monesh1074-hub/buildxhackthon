@@ -21,17 +21,29 @@ function isValidLuhn(numberStr) {
   return sum % 10 === 0;
 }
 
-/**
- * Fetch all enabled detection rules from database
- */
-function getActiveRules() {
+// In-memory cache of active rules
+let cachedRules = null;
+let lastFetch = 0;
+
+function getActiveRulesSync() {
+  const now = Date.now();
+  if (cachedRules && now - lastFetch < 5000) {
+    return cachedRules;
+  }
   try {
     const rules = db.prepare('SELECT * FROM detection_rules WHERE is_enabled = 1').all();
+    cachedRules = rules;
+    lastFetch = now;
     return rules;
   } catch (err) {
     console.error('Error fetching detection rules:', err.message);
-    return [];
+    return cachedRules || [];
   }
+}
+
+function updateActiveRulesCache(rules) {
+  cachedRules = rules;
+  lastFetch = Date.now();
 }
 
 /**
@@ -50,9 +62,9 @@ const SENSITIVE_JSON_KEYS = [
 /**
  * Detect sensitive entities in text or JSON
  */
-function detectSensitiveData(input) {
+function detectSensitiveData(input, customRules = null) {
   const text = typeof input === 'object' ? JSON.stringify(input, null, 2) : String(input);
-  const activeRules = getActiveRules();
+  const activeRules = customRules || getActiveRulesSync();
   const detections = [];
   const foundSpans = [];
 
@@ -109,7 +121,6 @@ function detectSensitiveData(input) {
       if (!valMatched) continue;
 
       const fullMatch = match[0];
-      // Locate the value portion only (ignoring key name)
       const valIndex = fullMatch.lastIndexOf(valMatched);
       const start = match.index + valIndex;
       const end = start + valMatched.length;
@@ -174,5 +185,6 @@ function detectSensitiveData(input) {
 module.exports = {
   detectSensitiveData,
   isValidLuhn,
-  getActiveRules
+  getActiveRules: getActiveRulesSync,
+  updateActiveRulesCache
 };

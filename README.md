@@ -4,13 +4,12 @@
 
 [![Node.js Version](https://img.shields.io/badge/Node.js-v20%2B-purple.svg)](https://nodejs.org/)
 [![React Version](https://img.shields.io/badge/Frontend-React_19_+_Vite-black.svg)](https://react.dev/)
-[![Design System](https://img.shields.io/badge/Design-Light_SaaS_+_Geist_+_Space_Grotesk-7C3AED.svg)](#)
-[![Database](https://img.shields.io/badge/Database-SQLite_WAL-blue.svg)](https://sqlite.org/)
+[![Database](https://img.shields.io/badge/Database-Supabase_PostgreSQL_+_SQLite_WAL-3ECF8E.svg)](https://supabase.com/)
 [![Zero Storage](https://img.shields.io/badge/Security-Zero--Plaintext_Storage-10B981.svg)](#zero-storage-guarantee)
 
 ---
 
-## 🚀 Quick Start (1-Click Launch)
+## ⚡ Quick Start (1-Click Launch)
 
 Run the unified server (starts the backend and serves the React dashboard at port 5000):
 
@@ -21,6 +20,34 @@ Or double-click `start.bat` on Windows.
 
 Open your browser to:
 👉 **[http://localhost:5000](http://localhost:5000)**
+
+---
+
+## ☁️ Running on Supabase Online (PostgreSQL)
+
+PrivacyShield features a **Dual-Database Architecture**:
+- **Local Mode (Default):** Runs with zero configuration using embedded SQLite (WAL mode).
+- **Online Cloud Mode:** Connects directly to **Supabase Online PostgreSQL** for cloud persistence!
+
+### 3-Step Supabase Setup:
+
+1. **Run the Schema in Supabase SQL Editor:**
+   - Create a free project at [supabase.com](https://supabase.com).
+   - In your Supabase dashboard, click **SQL Editor**.
+   - Copy the entire contents of [`supabase_schema.sql`](./supabase_schema.sql) and paste it into the editor.
+   - Click **Run**. This creates the `scans`, `scan_detections`, `detection_rules` tables, RLS security policies, and stored audit procedures!
+
+2. **Connect via the UI or `.env`:**
+   - **Option A (Via Dashboard UI):** Go to **Settings** > **Supabase Cloud Database** in the PrivacyShield dashboard. Enter your Project URL and API Key, test the connection, and click **Connect to Supabase Cloud**.
+   - **Option B (Via `.env` file):**
+     ```env
+     PORT=5000
+     SUPABASE_URL=https://your-project-id.supabase.co
+     SUPABASE_KEY=your-supabase-anon-or-service-role-key
+     ```
+
+3. **Verify Online Status:**
+   The top header badge will change to **"Supabase Online"** (emerald pill), and all incoming scans, rules, and zero-storage audits will run on your cloud PostgreSQL database!
 
 ---
 
@@ -51,15 +78,15 @@ PrivacyShield has been designed with the aesthetics of top-tier cybersecurity Sa
 | **Audit History** | `history` | Searchable, filterable audit log of sanitized scans with deep-dive modal. |
 | **Detection Policies** | `rules` | Inspection rule toggles and custom regular expression policy authoring. |
 | **API Gateway Interceptor** | `simulator` | Reverse proxy simulation demonstrating inline request filtering before log sinks. |
-| **Settings** | `settings` | System architecture specs, SQLite WAL persistence controls, audit export, and database maintenance. |
+| **Settings** | `settings` | Connect Supabase Online PostgreSQL, SQLite persistence controls, audit export, and database maintenance. |
 
 ---
 
 ## 🔒 Zero-Storage Guarantee
 
 - **Application Logs:** The custom Express `privacyLogger` middleware intercepts incoming request bodies and automatically sanitizes them before outputting to `console.log` or disk.
-- **SQLite Database:** The SQLite schema has no storage column for raw unmasked inputs. Only the sanitized content and detection counts are persisted.
-- **Verification Endpoint:** Call `GET /api/history/verify-zero-leakage` or click **"Verify Zero-PII"** in the top navigation bar to audit the SQLite database directly and confirm zero unmasked customer records exist.
+- **Database (Supabase / SQLite):** The schema has no storage column for raw unmasked inputs. Only the sanitized content and detection counts are persisted.
+- **Verification Stored Function:** Call `GET /api/history/verify-zero-leakage` or click **"Verify Zero-PII"** in the top navigation bar to run an audit directly on the database (via PostgreSQL regex or SQLite) and confirm zero unmasked customer records exist.
 
 ---
 
@@ -94,27 +121,16 @@ PrivacyShield has been designed with the aesthetics of top-tier cybersecurity Sa
   "riskScore": 78,
   "riskLevel": "CRITICAL",
   "processingTimeMs": 1.25,
-  "zeroLeakageVerified": true
+  "zeroLeakageVerified": true,
+  "database": "SUPABASE"
 }
 ```
 
-### 2. API Gateway Simulator
-`POST /api/scan/simulate-api-gateway`
-
-### 3. Telemetry & Analytics
-`GET /api/stats`
-
-### 4. Audit History
-`GET /api/history?search=&riskLevel=ALL&limit=50`
-
-### 5. Verify Zero-Storage Proof
-`GET /api/history/verify-zero-leakage`
-
-### 6. Inspection Policies
-- `GET /api/rules`
-- `PATCH /api/rules/:id/toggle`
-- `POST /api/rules`
-- `DELETE /api/rules/:id`
+### 2. Database Controls & Supabase Configuration
+- `GET /api/database/status`: Current database status (`SUPABASE` vs `SQLITE`).
+- `POST /api/database/test-supabase`: Test credentials against online Supabase.
+- `POST /api/database/configure-supabase`: Switch live runtime backend to Supabase.
+- `GET /api/database/schema-sql`: Fetch the full `supabase_schema.sql`.
 
 ---
 

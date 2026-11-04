@@ -15,7 +15,8 @@ export default function Header({
   onRefresh,
   isRefreshing,
   onOpenProofModal,
-  setMobileOpen
+  setMobileOpen,
+  dbStatus
 }) {
   const getTabDetails = () => {
     switch (activeTab) {
@@ -57,9 +58,9 @@ export default function Header({
         };
       case 'settings':
         return {
-          title: 'System Settings',
+          title: 'System & Database Settings',
           breadcrumb: 'Management / Settings',
-          desc: 'Engine health, SQLite WAL persistence controls, audit purging, and data export.'
+          desc: 'Configure Supabase Online PostgreSQL, SQLite persistence, audit purging, and data export.'
         };
       default:
         return {
@@ -70,7 +71,8 @@ export default function Header({
     }
   };
 
-  const { title, breadcrumb, desc } = getTabDetails();
+  const { title, breadcrumb } = getTabDetails();
+  const isSupabase = dbStatus?.type === 'SUPABASE' || dbStatus?.isOnline;
 
   return (
     <header className="bg-white border-b border-slate-200/80 px-6 lg:px-8 py-4 sticky top-0 z-30 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
@@ -96,7 +98,17 @@ export default function Header({
 
       {/* Action Strip & Status */}
       <div className="flex items-center flex-wrap gap-2.5">
-        {/* Floating Liquid-Glass Status Indicator */}
+        {/* Database Online Status Badge */}
+        <div className={`px-3 py-1.5 rounded-full flex items-center gap-2 text-xs font-mono border shadow-subtle ${
+          isSupabase 
+            ? 'bg-emerald-50 text-emerald-800 border-emerald-200 font-semibold' 
+            : 'bg-slate-50 text-slate-700 border-slate-200 font-medium'
+        }`}>
+          <Database className={`w-3.5 h-3.5 ${isSupabase ? 'text-emerald-600' : 'text-purple-600'}`} />
+          <span>{isSupabase ? 'Supabase Online' : 'SQLite Local WAL'}</span>
+        </div>
+
+        {/* Floating Gateway Status Indicator */}
         <div className="liquid-glass-badge px-3 py-1.5 rounded-full flex items-center gap-2 text-xs font-mono text-slate-700 shadow-subtle">
           <span className="relative flex h-2 w-2">
             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -104,14 +116,14 @@ export default function Header({
           </span>
           <span className="text-slate-800 font-medium">Gateway Active</span>
           <span className="text-slate-300">|</span>
-          <span className="text-emerald-700 font-semibold">Port 5000</span>
+          <span className="text-purple-700 font-semibold">:5000</span>
         </div>
 
         {/* Database Zero-Storage Verification Button */}
         <button
           onClick={onOpenProofModal}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-50 hover:bg-slate-100 text-slate-700 hover:text-slate-900 border border-slate-200 text-xs font-medium transition shadow-subtle"
-          title="Audit SQLite database directly for zero plaintext PII"
+          title="Audit database directly for zero plaintext PII"
         >
           <Lock className="w-3.5 h-3.5 text-purple-600" />
           <span>Verify Zero-PII</span>

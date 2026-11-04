@@ -64,6 +64,17 @@ export const api = {
   deleteRule: (id) => request(`/rules/${id}`, { method: 'DELETE' }),
 
   // Samples
-  fetchSamples: () => request('/samples')
-};
+  fetchSamples: () => request('/samples'),
 
+  // Supabase Online Database
+  getDatabaseStatus: () => request('/database/status'),
+  testSupabase: (params) => request('/database/test-supabase', {
+    method: 'POST',
+    body: JSON.stringify(typeof params === 'string' ? { connectionString: params } : params)
+  }),
+  configureSupabase: (params) => request('/database/configure-supabase', {
+    method: 'POST',
+    body: JSON.stringify(typeof params === 'string' ? { connectionString: params } : params)
+  }),
+  fetchSchemaSql: () => request('/database/schema-sql')
+};

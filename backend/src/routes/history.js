@@ -1,25 +1,18 @@
 const express = require('express');
 const router = express.Router();
-const {
-  getScanHistory,
-  getScanById,
-  deleteScan,
-  clearAllHistory
-} = require('../services/auditLogger');
-const db = require('../config/database');
+const dbAdapter = require('../config/dbAdapter');
 
 /**
  * GET /api/history
- * Fetch past scan history
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit, 10) || 50;
     const offset = parseInt(req.query.offset, 10) || 0;
     const search = req.query.search || '';
     const riskLevel = req.query.riskLevel || '';
 
-    const history = getScanHistory({ limit, offset, search, riskLevel });
+    const history = await dbAdapter.getScanHistory({ limit, offset, search, riskLevel });
     res.status(200).json({
       success: true,
       data: history
@@ -34,37 +27,11 @@ router.get('/', (req, res) => {
 
 /**
  * GET /api/history/verify-zero-leakage
- * Audit demonstration endpoint:
- * Proves that the database contains strictly zero plaintext sensitive entities.
  */
-router.get('/verify-zero-leakage', (req, res) => {
+router.get('/verify-zero-leakage', async (req, res) => {
   try {
-    const totalScans = db.prepare('SELECT COUNT(*) as count FROM scans').get().count;
-    const totalDetections = db.prepare('SELECT COUNT(*) as count FROM scan_detections').get().count;
-
-    // Check if scans table contains any raw credit cards or SSNs
-    const sampleScans = db.prepare('SELECT id, sanitized_content FROM scans LIMIT 20').all();
-
-    // Check raw content against unmasked CC pattern
-    const rawCcRegex = /\b(?:4[0-9]{15}|5[1-5][0-9]{14})\b/;
-    const rawSsnRegex = /\b\d{3}-\d{2}-\d{4}\b/;
-
-    let leakedEntitiesFound = 0;
-    for (const s of sampleScans) {
-      if (rawCcRegex.test(s.sanitized_content) || rawSsnRegex.test(s.sanitized_content)) {
-        leakedEntitiesFound++;
-      }
-    }
-
-    res.status(200).json({
-      success: true,
-      verified: leakedEntitiesFound === 0,
-      totalScansInspected: totalScans,
-      totalThreatsNeutralized: totalDetections,
-      rawSensitiveValuesInDatabase: leakedEntitiesFound,
-      complianceStatus: '100% COMPLIANT (ZERO-KNOWLEDGE PERSISTENCE)',
-      explanation: 'Every recorded audit record in SQLite stores strictly masked tokens or redacted values. Original sensitive values vanish from memory immediately upon masking.'
-    });
+    const result = await dbAdapter.verifyZeroStorage();
+    res.status(200).json(result);
   } catch (err) {
     res.status(500).json({ success: false, error: { message: err.message } });
   }
@@ -72,11 +39,10 @@ router.get('/verify-zero-leakage', (req, res) => {
 
 /**
  * GET /api/history/:id
- * Fetch single scan record
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
-    const scan = getScanById(req.params.id);
+    const scan = await dbAdapter.getScanById(req.params.id);
     if (!scan) {
       return res.status(404).json({
         success: false,
@@ -97,11 +63,10 @@ router.get('/:id', (req, res) => {
 
 /**
  * DELETE /api/history/:id
- * Delete single scan
  */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
-    deleteScan(req.params.id);
+    await dbAdapter.deleteScan(req.params.id);
     res.status(200).json({
       success: true,
       message: 'Scan record deleted successfully'
@@ -116,11 +81,10 @@ router.delete('/:id', (req, res) => {
 
 /**
  * DELETE /api/history
- * Clear all history
  */
-router.delete('/', (req, res) => {
+router.delete('/', async (req, res) => {
   try {
-    clearAllHistory();
+    await dbAdapter.clearAllHistory();
     res.status(200).json({
       success: true,
       message: 'All scan history purged successfully'
@@ -134,4 +98,3 @@ router.delete('/', (req, res) => {
 });
 
 module.exports = router;
-
